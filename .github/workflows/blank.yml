@@ -1,344 +1,70 @@
-### `VirtualPCPro.csproj`
-
-xml
-```
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>VirtualPCPro</AssemblyName>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-  </PropertyGroup>
-</Project>
-```
-
-### `Program.cs`
-
-csharp
-```
-namespace VirtualPCPro;
-
-internal static class Program
-{
-    [STAThread]
-    static void Main()
-    {
-        ApplicationConfiguration.Initialize();
-        Application.Run(new MainForm());
+    width: 1280,
+    height: 800,
+    minWidth: 800,
+    minHeight: 600,
+    title: "Meu PC Virtual",
+    backgroundColor: "#101827",
+    autoHideMenuBar: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
     }
+  });
+
+  win.loadFile(path.join(__dirname, "index.html"));
 }
+app.whenReady().then(() => {
+  createWindow();
+
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
+  });
+});
+
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    app.quit();
+  }
+});
 ```
 
-### `MainForm.cs`
+Crie também o arquivo `package.json`:
 
-csharp
+json
 ```
-using System.Diagnostics;
 
-namespace VirtualPCPro;
-
-public sealed class MainForm : Form
 {
-    private readonly TextBox qemu = new();
-    private readonly TextBox iso = new();
-    private readonly TextBox disk = new();
-    private readonly NumericUpDown ram = new();
-    private readonly NumericUpDown cpu = new();
-    private readonly Label status = new();
-    private Process? vm;
-
-    public MainForm()
-    {
-        Text = "Virtual PC Pro";
-        Width = 720;
-        Height = 440;
-        MinimumSize = new Size(620, 400);
-        StartPosition = FormStartPosition.CenterScreen;
-
-        var layout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            Padding = new Padding(18),
-            ColumnCount = 3,
-            RowCount = 8
-        };
-
-        layout.ColumnStyles.Add(
-            new ColumnStyle(SizeType.Absolute, 150));
-        layout.ColumnStyles.Add(
-            new ColumnStyle(SizeType.Percent, 100));
-        layout.ColumnStyles.Add(
-            new ColumnStyle(SizeType.Absolute, 100));
-
-        Controls.Add(layout);
-
-        AddPath(layout, 0, "Executável QEMU", qemu, "qemu");
-        AddPath(layout, 1, "ISO do Windows", iso, "iso");
-        AddPath(layout, 2, "Disco virtual", disk, "disk");
-
-        ram.Minimum = 2;
-        ram.Maximum = 64;
-        ram.Increment = 2;
-        ram.Value = 8;
-
-        cpu.Minimum = 1;
-        cpu.Maximum = 32;
-        cpu.Value = 4;
-
-        AddControl(layout, 3, "RAM (GB)", ram);
-        AddControl(layout, 4, "Núcleos CPU", cpu);
-
-        var buttons = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true
-        };
-
-        var start = new Button
-        {
-            Text = "Iniciar PC virtual",
-            AutoSize = true
-        };
-        start.Click += (_, _) => StartVM();
-
-        var stop = new Button
-        {
-            Text = "Encerrar processo",
-            AutoSize = true
-        };
-        stop.Click += (_, _) => StopVM();
-
-        buttons.Controls.Add(start);
-        buttons.Controls.Add(stop);
-
-        layout.Controls.Add(buttons, 0, 5);
-        layout.SetColumnSpan(buttons, 3);
-
-        status.Text = "Pronto para configurar.";
-        status.AutoSize = true;
-
-        layout.Controls.Add(status, 0, 6);
-        layout.SetColumnSpan(status, 3);
-    }
-
-    private static void AddControl(
-        TableLayoutPanel panel,
-        int row,
-        string label,
-        Control control)
-    {
-        panel.Controls.Add(new Label
-        {
-            Text = label,
-            AutoSize = true,
-            Anchor = AnchorStyles.Left
-        }, 0, row);
-
-        control.Dock = DockStyle.Fill;
-        panel.Controls.Add(control, 1, row);
-    }
-
-    private static void AddPath(
-        TableLayoutPanel panel,
-        int row,
-        string label,
-        TextBox box,
-        string type)
-    {
-        AddControl(panel, row, label, box);
-
-        var browse = new Button
-        {
-            Text = "Procurar...",
-            Dock = DockStyle.Fill
-        };
-
-        browse.Click += (_, _) =>
-        {
-            if (type == "disk")
-            {
-                using var dialog = new SaveFileDialog
-                {
-                    Filter = "Disco QEMU (*.qcow2)|*.qcow2",
-                    FileName = "windows.qcow2"
-                };
-
-                if (dialog.ShowDialog() == DialogResult.OK)
-                    box.Text = dialog.FileName;
-            }
-            else
-            {
-                using var dialog = new OpenFileDialog
-                {
-                    Filter = type == "iso"
-                        ? "Imagens ISO (*.iso)|*.iso"
-                        : "QEMU (qemu-system-x86_64.exe)|qemu-system-x86_64.exe"
-                };
-
-                if (dialog.ShowDialog() == DialogResult.OK)
-                    box.Text = dialog.FileName;
-            }
-        };
-
-        panel.Controls.Add(browse, 2, row);
-    }
-
-    private void StartVM()
-    {
-        if (vm is { HasExited: false })
-        {
-            MessageBox.Show("A máquina virtual já está em execução.");
-            return;
-        }
-
-        string exe = qemu.Text.Trim();
-        string image = disk.Text.Trim();
-        string installer = iso.Text.Trim();
-
-        if (!File.Exists(exe) ||
-            !File.Exists(image) ||
-            !File.Exists(installer))
-        {
-            MessageBox.Show(
-                "Selecione o QEMU, uma ISO e um disco virtual existente.");
-            return;
-        }
-
-        var args = new List<string>
-        {
-            "-accel", "whpx",
-            "-machine", "q35",
-            "-smp", ((int)cpu.Value).ToString(),
-            "-m", $"{(int)ram.Value}G",
-            "-drive", $"file={image},format=qcow2,if=ide",
-            "-cdrom", installer,
-            "-boot", "order=d",
-            "-netdev", "user,id=net0",
-            "-device", "e1000,netdev=net0",
-            "-display", "sdl"
-        };
-
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = exe,
-            WorkingDirectory = Path.GetDirectoryName(exe)!,
-            UseShellExecute = false
-        };
-
-        foreach (string arg in args)
-            startInfo.ArgumentList.Add(arg);
-
-        try
-        {
-            vm = Process.Start(startInfo);
-
-            status.Text = vm is null
-                ? "Não foi possível iniciar."
-                : "Máquina virtual iniciada.";
-        }
-        catch (Exception ex)
-        {
-            status.Text = "Falha ao iniciar.";
-            MessageBox.Show(ex.Message, "Erro QEMU");
-        }
-    }
-
-    private void StopVM()
-    {
-        if (vm is { HasExited: false })
-        {
-            var answer = MessageBox.Show(
-                "Encerrar o processo pode causar perda de dados. " +
-                "Desligue o Windows virtual normalmente sempre que possível. " +
-                "Deseja continuar?",
-                "Confirmar encerramento",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Warning);
-
-            if (answer == DialogResult.Yes)
-                vm.Kill();
-        }
-
-        status.Text = "Processo encerrado ou inativo.";
-    }
-}
-```
-
-### `app.manifest`
-
-xml
-```
-<?xml version="1.0" encoding="utf-8"?>
-<assembly manifestVersion="1.0"
- xmlns="urn:schemas-microsoft-com:asm.v1">
-  <assemblyIdentity
-    version="1.0.0.0"
-    name="VirtualPCPro.app" />
-  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
-    <security>
-      <requestedPrivileges>
-        <requestedExecutionLevel
-          level="asInvoker"
-          uiAccess="false" />
-      </requestedPrivileges>
-    </security>
-  </trustInfo>
-</assembly>
-```
-
-### `build.bat`
-
-bat
-```
-@echo off
-setlocal
-cd /d "%~dp0"
-
-dotnet --version
-if errorlevel 1 (
-    echo Instale o SDK .NET 8.
-    pause
-    exit /b 1
-)
-
-dotnet restore VirtualPCPro.csproj
-if errorlevel 1 goto erro
-
-dotnet publish VirtualPCPro.csproj ^
-  -c Release ^
-  -r win-x64 ^
-  --self-contained true ^
-  -p:PublishSingleFile=true ^
-  -p:EnableCompressionInSingleFile=true ^
-  -o publish
-
-if errorlevel 1 goto erro
-
-echo Build concluido:
-echo %CD%\publish\VirtualPCPro.exe
-pause
-exit /b 0
-
-:erro
-echo Erro durante a compilacao.
-pause
-exit /b 1
-```
-
-### Criar disco virtual de 128 GB
-
-powershell
-```
-qemu-img create -f qcow2 windows.qcow2 128G
-```
-
-### Compilar manualmente
-
-powershell
-```
-dotnet restore
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
-```
+  "name": "meu-pc-virtual",
+  "version": "1.0.0",
+  "description": "Desktop virtual para Windows",
+  "main": "main.cjs",
+  "author": "Desenvolvedor",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "br.com.pcvirtual.desktop",
+    "productName": "Meu PC Virtual",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "index.html",
+      "**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
